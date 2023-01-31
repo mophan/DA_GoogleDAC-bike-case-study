@@ -357,8 +357,8 @@ Steps of data cleaning and manipulation are documented in
 1_code\\0_data_load.R. After clean, data was loaded to bike database on
 the SQLite server.
 
--   Station data: loaded to table D_Station
+-   Station data: loaded to table `D_Station`
 
--   Trip data before 2020: loaded to table F_TripB2020
+-   Trip data before 2020: loaded to table `F_TripB2020`
 
--   Trip data since 2020: loaded to table F_TripS2020
+-   Trip data since 2020: loaded to table `F_TripS2020`
