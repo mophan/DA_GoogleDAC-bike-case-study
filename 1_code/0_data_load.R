@@ -6,38 +6,48 @@
 # packages
 library(tidyverse)
 library(lubridate)
-library(sqldf)
 library(janitor)
 library(readxl)
 library(data.table)
-library(readxl)
-library(DBI)
-library(RSQLite)
 library(hms)
+library(sqldf)
+library(RPostgres)
+library(RSQLite)
+library(DBI)
+library(keyring)
 
 
 # folder 
 folder_data <- '2_data'
 folder_input <- '3_input'
 folder_ouput <- '4_output'
-folder_db <- '5_dbsqlite'
+# folder_db <- '5_dbsqlite'
+
+folder_extractdata <-
+  paste0(folder_data, '/extract_data')
 
 
 # # create folder extract data
 # PS: RUN ONLY ONCE
 # dir.create(file.path(folder_data, 'extract_data'))
 
- 
-# folder extract data path
-folder_extractdata <-
-  paste0(folder_data, '/', 'extract_data')
+
+# # connect SQLite
+# # PS: new database will be created if the bike db does not exist
+# con_sqlite <- 
+#   dbConnect(SQLite(), 
+#             paste0(folder_db, '/bike.sqlite'))
 
 
-# connect SQLite
-# PS: new database will be created if the bike db does not exist
+# connect to PostgreSQL
 con <- 
-  dbConnect(SQLite(), 
-            paste0(folder_db, '/bike.sqlite'))
+  dbConnect(
+    Postgres(),
+    dbname = "dac_bike",
+    port = "5432",
+    user = key_list("postgres")[1,2],
+    password = key_get("postgres", key_list("postgres")[1,2])
+  )
 
 
 
@@ -61,33 +71,8 @@ trips20_data <-
 
 
 # check if all data are imported
-# PS: compare with files in folder data
-sort(unique(trips20_data$filename))
-
-# check rideable type
-addmargins(table(trips20_data$rideable_type))
-prop.table(table(trips20_data$rideable_type)) * 100
-
-# check member type
-addmargins(table(trips20_data$member_casual))
-prop.table(table(trips20_data$member_casual)) * 100
-
-
-# check if any NA station
-addmargins(table(is.na(trips20_data$start_station_id)))   
-addmargins(table(is.na(trips20_data$end_station_id)))
-
-addmargins(table(is.na(trips20_data$start_station_name)))
-addmargins(table(is.na(trips20_data$end_station_name)))
-
-addmargins(table(is.na(trips20_data$start_lat)))   # no NA
-addmargins(table(is.na(trips20_data$start_lng)))   # no NA
-
-addmargins(table(is.na(trips20_data$end_lat)))   
-addmargins(table(is.na(trips20_data$end_lng)))   
-
-
-# PS: check on station will be done later, after rbind with the leftover data
+table(trips20_data$filename, 
+      !is.na(trips20_data$ride_id))
 
 
 
@@ -145,7 +130,6 @@ addmargins(table(is.na(trips20_data$end_lng)))
 #   }
 
 
-
 # check file header 
 # PS: to mass import files that have same headers
 
@@ -160,7 +144,7 @@ tripb20_files <-
   tripb20_files[grepl('*.csv', tripb20_files)]
 
 
-# function to read headers
+# function to read headers of data files
 read.header <- function(filename){
   
   data <- 
@@ -174,7 +158,7 @@ read.header <- function(filename){
 }
 
 
-# import data file header
+# import data headers
 tripb20_header <- 
   lapply(tripb20_files, 
          function(x) read.header(x)) %>% 
@@ -192,20 +176,18 @@ tripb20_header <-
 
 
 # check number separator "." in header
-table(tripb20_header$num_separator)
+table(tripb20_header$num_separator,
+      tripb20_header$num_char)
 
 
 
 # 3. import trip before 2020 ---------------------------------------
 
-# filter headers that have the same num separator (11)
+# filter headers with same pattern
+# PS: headers having the same num separator (11)
 tripb20_same_header <- 
   tripb20_header %>% 
   filter(num_separator == 11)
-
-
-# check header char length
-table(tripb20_same_header$num_char)
 
 
 # function to read data
@@ -243,24 +225,32 @@ tripb20_data <-
   bind_rows()
 
 
-# check filename
-sort(unique(tripb20_data$filename))
-table(is.na(tripb20_data$filename))
+# check if all data are imported
+table(tripb20_data$filename,
+      is.na(tripb20_data$trip_id))
 
 
 
 # data cleansing ---
 
-# check column birthday if it is year only
-min(tripb20_data$birthday[!is.na(tripb20_data$birthday)])
-max(tripb20_data$birthday[!is.na(tripb20_data$birthday)])
-
-# check if any case has values for both birthday and birthyear
-table(!is.na(tripb20_data$birthday), 
-      !is.na(tripb20_data$birthyear))
+# check birthday and birthyear
+table(is.na(tripb20_data$birthday), 
+      is.na(tripb20_data$birthyear))
 
 
-# combine 2 columns birthday, birth year
+# check birthday distribution
+summary(tripb20_data$birthday)
+summary(tripb20_data$birthyear)
+
+
+# check who have birthyear as 1888 --- 20 trips
+# Maybe because of data entry errors?
+abnormal_birthyear <- 
+  tripb20_data %>% 
+  filter(birthyear == 1888)
+
+
+# combine 2 columns birthday, birthyear
 tripb20_data <- 
   tripb20_data %>% 
   mutate(
@@ -270,15 +260,8 @@ tripb20_data <-
   select(-birthday)
 
 
-# check variable distribution
-addmargins(table(tripb20_data$usertype))
-addmargins(table(is.na(tripb20_data$gender)))
-addmargins(table(tripb20_data$gender))
-addmargins(table(is.na(tripb20_data$birthyear)))
-
-
 # check date format
-check_startdate <- 
+tripb20_dateformat <- 
   tripb20_data %>% 
   select(filename, start_time) %>% 
   distinct() %>% 
@@ -292,6 +275,7 @@ check_startdate <-
 tripb20_data <- 
   tripb20_data %>% 
   mutate(
+    
     # convert multiple date time format
     across(c(start_time, end_time),
            ~ as_datetime(parse_date_time(., c('ymd_HMS',
@@ -308,16 +292,19 @@ tripb20_data <-
   )
 
 
-# check time adjustment
+# check data type
 glimpse(tripb20_data)
 
 
 # check if any NA
-table(is.na(tripb20_data$start_time_adj))
-table(is.na(tripb20_data$end_time_adj))
+table(is.na(tripb20_data$start_time),
+      is.na(tripb20_data$start_time_adj))
+
+table(is.na(tripb20_data$end_time),
+      is.na(tripb20_data$end_time_adj))
 
 
-# check distribution by date
+# check distribution by year
 addmargins(table(tripb20_data$start_time_adj_year))
 prop.table(table(tripb20_data$start_time_adj_year)) * 100
 
@@ -337,7 +324,7 @@ tripb20_data_adj <-
 
 
 
-# 4. import data with different header ---------------------------------------
+# 4. import trip data with different header ---------------------------------------
 
 # import Q1_2018
 Q1_2018 <- 
@@ -369,8 +356,8 @@ Q1_2018 <-
 
 
 # check date
-table(Q1_2018$start_time_year)
-table(Q1_2018$end_time_year)
+min(Q1_2018$start_time)
+max(Q1_2018$end_time)
 
 
 # import Q2_2019
@@ -403,8 +390,8 @@ Q2_2019 <-
 
 
 # check date
-table(Q2_2019$start_time_year)
-table(Q2_2019$end_time_year)
+min(Q2_2019$start_time)
+max(Q2_2019$end_time)
 
 
 # import Q1_2020 (same data frame as trips20 trip)
@@ -416,51 +403,56 @@ Q1_2020 <-
   )
 
 
-# check if Q1_2020 data already in trips20 trip data
-table(Q1_2020$ride_id %in% c(trips20_data$ride_id))
-
 # check dates
 min(Q1_2020$started_at)
 max(Q1_2020$started_at) 
 
 
 
-# 5. rbind data ---------------------------------------
+# 5. merge trip data ---------------------------------------
 
-# check minDate, maxDate of data since 2020
+# check minDate, maxDate of data trip since 2020
 min(trips20_data$started_at)
 max(trips20_data$ended_at)
 
-# check col name before rbind
+# check col name before merge
 glimpse(trips20_data)
 glimpse(Q1_2020)
 
 
-# rbind data since 2020 
+# merge trip data since 2020 
 trips20_data <- 
   trips20_data %>% 
   rbind(Q1_2020 %>% 
-          select(names(trips20_data)))
+          select(names(trips20_data))) %>% 
+  distinct()
 
 
-# check data before 2020 
+
+# check trip data before 2020 
 glimpse(tripb20_data_adj)
 glimpse(Q1_2018)
 glimpse(Q2_2019)
 
 
-# rbind data before 2020
+# check dates
+min(tripb20_data_adj$start_time)
+max(tripb20_data_adj$end_time)
+
+min(Q1_2018$start_time)
+max(Q1_2018$end_time)
+
+min(Q2_2019$start_time)
+max(Q2_2019$end_time)
+
+
+# merge trip data before 2020
 tripb20_data_final <- 
   tripb20_data_adj %>% 
   rbind(
     Q1_2018 %>% select(names(tripb20_data_adj)),
     Q2_2019 %>% select(names(tripb20_data_adj))
-  )
-
-
-# remove duplicate if any
-tripb20_data_final <- 
-  tripb20_data_final %>% 
+  ) %>% 
   distinct()
 
 
@@ -469,10 +461,11 @@ tripb20_data_final <-
 
 # list station
 station_files <- 
-  list.files(folder_extractdata, pattern = 'Divvy_Stations_')
+  list.files(folder_extractdata, 
+             pattern = 'Divvy_Stations_')
 
 
-# filter only csv files
+# filter csv files
 station_files_csv <- 
   station_files[grepl('*.csv', station_files)]
 
@@ -487,34 +480,7 @@ station_data <-
   bind_rows()
 
 
-# check unique station filename
-sort(unique(station_data$filename))
-
-
-# check na columns
-table(station_data$filename, is.na(station_data$date_created))
-table(station_data$filename, is.na(station_data$online_date))
-table(station_data$filename, is.na(station_data$city))
-table(station_data$filename, is.na(station_data$x8))  # empty 
-
-
-# cleansing station data
-station_data <- 
-  station_data %>% 
-  mutate(
-    # merge online_date and date_created
-    online_date = case_when(is.na(online_date) ~ date_created,
-                            TRUE ~ online_date)
-  ) %>% 
-  select(-x8, -date_created)
-
-
-# check if any date is na
-table(station_data$filename, 
-      is.na(station_data$online_date))
-
-
-# list excel file
+# filter excel file
 station_files_xlsx <- 
   station_files[grepl('*.xlsx', station_files)]
 
@@ -533,11 +499,35 @@ Q1Q2_2014_station <-
 # rbind station data
 station_data <- 
   bind_rows(station_data, 
-            Q1Q2_2014_station)
+            Q1Q2_2014_station) %>% 
+  distinct()
+
+
+# check NA
+table(station_data$filename, is.na(station_data$id))
+table(station_data$filename, is.na(station_data$date_created))
+table(station_data$filename, is.na(station_data$online_date))
+table(station_data$filename, is.na(station_data$city))
+table(station_data$filename, is.na(station_data$x8))  # empty 
+
+
+# combine two columns online_date and date_created
+station_data <- 
+  station_data %>% 
+  mutate(
+    # merge online_date and date_created
+    online_date = case_when(is.na(online_date) ~ date_created,
+                            TRUE ~ online_date)
+  ) %>% 
+  select(-x8, -date_created)
+
+
+# check NA again
+table(station_data$filename, is.na(station_data$online_date))
 
 
 # check date format
-check_date_station <- 
+station_dateformat <- 
   station_data %>% 
   mutate(date_length = nchar(online_date)) %>% 
   group_by(date_length, filename) %>% 
@@ -603,33 +593,32 @@ station_data %>%
 #           na = '', row.names = FALSE)
 
 
-# # create D_station table
-# # PS: ONLY RUN ONCE
-# dbExecute(con,
-#           "CREATE TABLE D_Station (
-#               id           INTEGER     NOT NULL,
-#               name         TEXT        NOT NULL,
-#               latitude     REAL        NOT NULL,
-#               longitude    REAL        NOT NULL,
-#               dpcapacity   INTEGER,
-#               landmark     INTEGER,
-#               city         TEXT,
-#               date_created INTEGER (8),
-#               time_created TEXT,
-#               update_date  INTEGER (8) NOT NULL,
-#               CURRUPDATE   TEXT(1)        NOT NULL,
-#               PRIMARY KEY (id, update_date)
-#           )"
-# )
+
+# 7. validate trip data since 2020 -------------------------------------------------
+
+# check rideable type
+addmargins(table(trips20_data$rideable_type))
+prop.table(table(trips20_data$rideable_type)) * 100
+
+# check member type
+addmargins(table(trips20_data$member_casual))
+prop.table(table(trips20_data$member_casual)) * 100
 
 
-# load station data
-# ONLY RUN ONCE, if run multiple then append same data to the table
-# dbAppendTable(con, 'D_Station', station_data)
+# check if any NA station
+addmargins(table(is.na(trips20_data$start_station_id)))   
+addmargins(table(is.na(trips20_data$end_station_id)))
+
+addmargins(table(is.na(trips20_data$start_station_name)))
+addmargins(table(is.na(trips20_data$end_station_name)))
+
+addmargins(table(is.na(trips20_data$start_lat)))   # no NA
+addmargins(table(is.na(trips20_data$start_lng)))   # no NA
+
+addmargins(table(is.na(trips20_data$end_lat)))   
+addmargins(table(is.na(trips20_data$end_lng)))   
 
 
-
-# 7. load trip data since 2020 -------------------------------------------------
 
 # check duplicate before load
 table(duplicated(trips20_data$ride_id))
@@ -702,37 +691,14 @@ trips20_data <-
          -Is_duplicate) 
 
 
-# # create table in bike db
-# # RUN ONLY ONCE
-# dbExecute(con,
-#           "CREATE TABLE F_TripS2020 (
-#     ride_id         TEXT   PRIMARY KEY  NOT NULL,
-#     rideable_type   TEXT,
-#     start_date      INTEGER (8),
-#     end_date        INTEGER (8),
-#     started_at     TEXT,
-#     ended_at     TEXT,
-#     ride_length   TEXT,
-#     start_station_name     TEXT,
-#     start_station_id         INTEGER,
-#     end_station_name  TEXT,
-#     end_station_id     INTEGER,
-#     start_lat  REAL,
-#     start_lng  REAL,
-#     end_lat REAL,
-#     end_lng REAL,
-#     member_casual TEXT
-# )"
-# )
 
+# 8. validate trip data before 2020 ---------------------------------
 
-# # load trip data since 2020
-# # ONLY RUN ONCE, if run multiple then append same data to the table
-# dbAppendTable(con, 'F_TripS2020', trips20_data)
-
-
-
-# 8. load trip data before 2020 ---------------------------------
+# check variable distribution
+addmargins(table(tripb20_data$usertype))
+addmargins(table(is.na(tripb20_data$gender)))
+addmargins(table(tripb20_data$gender))
+addmargins(table(is.na(tripb20_data$birthyear)))
 
 # check before load
 glimpse(tripb20_data_final)
@@ -786,9 +752,91 @@ tripb20_data_final <-
            .before = 'tripduration')
 
 
-# # create table for quarter data in bike db
-# # RUN ONLY ONCE
-# dbExecute(con,
+
+# 9. load data to PostgreSQL ----------------------------------
+# PS: ONLY RUN ONCE
+
+# station data 
+# dbWriteTable(con, "d_station", station_data)
+
+
+# trip data since 2020
+# dbWriteTable(con, "f_trips2020", trips20_data)
+
+
+# trip data before 2020
+# dbWriteTable(con, "f_tripb2020", tripb20_data_final)
+
+# Note: go to postgresql to set data type and constaints after load
+
+
+
+# 10. load data to SQLite -----------------------------------
+# PS: ONLY RUN ONCE
+
+
+# Don't use as it takes too long to query big data
+
+
+# create table for station data
+# PS: ONLY RUN ONCE
+# dbExecute(con_sqlite,
+#           "CREATE TABLE D_Station (
+#               id           INTEGER     NOT NULL,
+#               name         TEXT        NOT NULL,
+#               latitude     REAL        NOT NULL,
+#               longitude    REAL        NOT NULL,
+#               dpcapacity   INTEGER,
+#               landmark     INTEGER,
+#               city         TEXT,
+#               date_created INTEGER (8),
+#               time_created TEXT,
+#               update_date  INTEGER (8) NOT NULL,
+#               CURRUPDATE   TEXT(1)        NOT NULL,
+#               PRIMARY KEY (id, update_date)
+#           )"
+# )
+
+
+# load station data
+# ONLY RUN ONCE, if run multiple then append same data to the table
+# dbAppendTable(con_sqlite, 'D_Station', station_data)
+
+
+
+# create table for trip since 2020
+# RUN ONLY ONCE
+# dbExecute(con_sqlite,
+#           "CREATE TABLE F_TripS2020 (
+#     ride_id         TEXT   PRIMARY KEY  NOT NULL,
+#     rideable_type   TEXT,
+#     start_date      INTEGER (8),
+#     end_date        INTEGER (8),
+#     started_at     TEXT,
+#     ended_at     TEXT,
+#     ride_length   TEXT,
+#     start_station_name     TEXT,
+#     start_station_id         INTEGER,
+#     end_station_name  TEXT,
+#     end_station_id     INTEGER,
+#     start_lat  REAL,
+#     start_lng  REAL,
+#     end_lat REAL,
+#     end_lng REAL,
+#     member_casual TEXT
+# )"
+# )
+
+
+# load trip data since 2020
+# ONLY RUN ONCE, if run multiple then append same data to the table
+# dbAppendTable(con_sqlite, 'F_TripS2020', trips20_data)
+
+
+
+# create table for trip before 2020
+# RUN ONLY ONCE
+# dbExecute(con_sqlite,
 #           "CREATE TABLE F_TripB2020 (
 #     trip_id         INTEGER   PRIMARY KEY  NOT NULL,
 #     bikeid          INTEGER,
@@ -808,13 +856,13 @@ tripb20_data_final <-
 # )
 
 
-# # load tripb20 data
-# # ONLY RUN ONCE, if run multiple then append same data to the table
-# dbAppendTable(con, 'F_TripB2020', tripb20_data_final)
+# load trip data before 2020
+# ONLY RUN ONCE, if run multiple then append same data to the table
+# dbAppendTable(con_sqlite, 'F_TripB2020', tripb20_data_final)
 
 
 
-# 9. check station data from trips20 and tripb20 data ----------------------
+# 11. check station data from trips20 and tripb20 data ----------------------
 
 # check trips20 data ----
 glimpse(trips20_data)
