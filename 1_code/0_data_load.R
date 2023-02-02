@@ -12,7 +12,7 @@ library(data.table)
 library(hms)
 library(sqldf)
 library(RPostgres)
-library(RSQLite)
+# library(RSQLite)
 library(DBI)
 library(keyring)
 
@@ -32,8 +32,8 @@ folder_extractdata <-
 # dir.create(file.path(folder_data, 'extract_data'))
 
 
-# # connect SQLite
-# # PS: new database will be created if the bike db does not exist
+# connect SQLite
+# PS: new database will be created if the bike db does not exist
 # con_sqlite <- 
 #   dbConnect(SQLite(), 
 #             paste0(folder_db, '/bike.sqlite'))
@@ -238,18 +238,6 @@ table(is.na(tripb20_data$birthday),
       is.na(tripb20_data$birthyear))
 
 
-# check birthday distribution
-summary(tripb20_data$birthday)
-summary(tripb20_data$birthyear)
-
-
-# check who have birthyear as 1888 --- 20 trips
-# Maybe because of data entry errors?
-abnormal_birthyear <- 
-  tripb20_data %>% 
-  filter(birthyear == 1888)
-
-
 # combine 2 columns birthday, birthyear
 tripb20_data <- 
   tripb20_data %>% 
@@ -411,6 +399,8 @@ max(Q1_2020$started_at)
 
 # 5. merge trip data ---------------------------------------
 
+# trip since 2020 ---
+
 # check minDate, maxDate of data trip since 2020
 min(trips20_data$started_at)
 max(trips20_data$ended_at)
@@ -428,6 +418,8 @@ trips20_data <-
   distinct()
 
 
+
+#  trip before 2020 ---
 
 # check trip data before 2020 
 glimpse(tripb20_data_adj)
@@ -452,7 +444,12 @@ tripb20_data_final <-
   rbind(
     Q1_2018 %>% select(names(tripb20_data_adj)),
     Q2_2019 %>% select(names(tripb20_data_adj))
-  ) %>% 
+  ) 
+
+
+# remove duplicate
+tripb20_data_final <- 
+  tripb20_data_final %>% 
   distinct()
 
 
@@ -596,40 +593,83 @@ station_data %>%
 
 # 7. validate trip data since 2020 -------------------------------------------------
 
-# check rideable type
+# data type ---
+glimpse(trips20_data)
+
+
+# data range & constraints ---
+
+# ride_id
+table(is.na(trips20_data$ride_id))  # all FALSE, not NULL
+table(duplicated(trips20_data$ride_id))   # 209 duplicates
+
+
+# rideable_type
+table(is.na(trips20_data$rideable_type))     # all FALSE, not NULL
 addmargins(table(trips20_data$rideable_type))
 prop.table(table(trips20_data$rideable_type)) * 100
 
-# check member type
-addmargins(table(trips20_data$member_casual))
-prop.table(table(trips20_data$member_casual)) * 100
+
+# started_at
+table(is.na(trips20_data$started_at))   # all FALSE, not NULL
+min(trips20_data$started_at)
+max(trips20_data$started_at)
 
 
-# check if any NA station
-addmargins(table(is.na(trips20_data$start_station_id)))   
-addmargins(table(is.na(trips20_data$end_station_id)))
-
-addmargins(table(is.na(trips20_data$start_station_name)))
-addmargins(table(is.na(trips20_data$end_station_name)))
-
-addmargins(table(is.na(trips20_data$start_lat)))   # no NA
-addmargins(table(is.na(trips20_data$start_lng)))   # no NA
-
-addmargins(table(is.na(trips20_data$end_lat)))   
-addmargins(table(is.na(trips20_data$end_lng)))   
+# ended_at
+table(is.na(trips20_data$ended_at))   # all FALSE, not NULL
+min(trips20_data$ended_at)
+max(trips20_data$ended_at)
 
 
+# station_id
+table(is.na(trips20_data$start_station_id))   # 5M rows NULL
+table(is.na(trips20_data$end_station_id))     # 6M rows NULL
 
-# check duplicate before load
-table(duplicated(trips20_data$ride_id))
+
+length(unique(c(trips20_data$start_station_id,   # 1293
+                trips20_data$end_station_id)))
 
 
-# reason for duplicate: duplicate with start time > end time
-# calculate ride length
+min(unique(c(trips20_data$start_station_id,      # 2
+             trips20_data$end_station_id)),
+    na.rm = TRUE)
+
+
+max(unique(c(trips20_data$start_station_id,      # 202480
+             trips20_data$end_station_id)),
+    na.rm = TRUE)
+
+
+# station name
+table(is.na(trips20_data$start_station_name))   # 1M rows NULL
+table(is.na(trips20_data$end_station_name))     # 1M rows NULL
+
+
+length(unique(c(trips20_data$start_station_name,   # 1499
+                trips20_data$end_station_name)))
+
+
+# long, lat
+table(is.na(trips20_data$start_lat))   # all FALSE, not NULL
+table(is.na(trips20_data$start_lng))   # all FALSE, not NULL
+
+table(is.na(trips20_data$end_lat))     # 13k NULL
+table(is.na(trips20_data$end_lng))     # same with lat
+
+
+# membership
+table(is.na(trips20_data$member_casual))
+table(trips20_data$member_casual)
+prop.table(table(trips20_data$member_casual)) * 100   # 57.26% members
+
+
+
+# find duplicate & check ride length ---
 trips20_data <- 
   trips20_data %>% 
   mutate(
-    ride_length = as_hms(difftime(ended_at, started_at)),
+    ride_length = difftime(ended_at, started_at),
     .after = 'ended_at',
     Is_duplicate = ifelse(ride_id %in% 
                             trips20_data$ride_id[duplicated(trips20_data$ride_id)],
@@ -643,12 +683,7 @@ trips20_duplicate <-
   filter(ride_id %in% 
            trips20_data$ride_id[duplicated(trips20_data$ride_id)]) %>% 
   arrange(ride_id)
-
-
-# # export duplicated trips20 data
-# fwrite(trips20_duplicate,
-#        file.path(folder_ouput, 'dup_trips20_data.csv'),
-#        na = '', row.names = FALSE)
+# reason for duplicate: duplicate with start time > end time
 
 
 # filter out duplicate 
@@ -662,7 +697,18 @@ trips20_data <-
 table(duplicated(trips20_data$ride_id))
 
 
-# add dateid
+# check ride length ---
+
+# check if any trip lsss than 1m included -- should be all FALSE
+table(trips20_data$ride_length < 60)     # 227k 
+
+# check if trip greater than 24h included -- should be all FALSE
+table(trips20_data$ride_length > 24 * 60 * 60)  # 10k
+
+
+# formatting date type ---
+
+# add start_date, end_date
 trips20_data <- 
   trips20_data %>% 
   mutate(
@@ -678,11 +724,11 @@ trips20_data <-
   mutate(
     started_at = format(started_at, '%Y-%m-%d %H:%M:%S'),
     ended_at = format(ended_at, '%Y-%m-%d %H:%M:%S'),
-    ride_length = format(ride_length, '%H:%M:%S')
+    ride_length = format(as_hms(ride_length), '%H:%M:%S')
   )
 
 
-# select columns to use
+# select columns to load
 glimpse(trips20_data)
 
 trips20_data <- 
@@ -693,6 +739,19 @@ trips20_data <-
 
 
 # 8. validate trip data before 2020 ---------------------------------
+
+
+# check birthday distribution
+summary(tripb20_data$birthday)
+summary(tripb20_data$birthyear)
+
+
+# check who have birthyear as 1888 --- 20 trips
+# Maybe because of data entry errors?
+abnormal_birthyear <- 
+  tripb20_data %>% 
+  filter(birthyear == 1888)
+
 
 # check variable distribution
 addmargins(table(tripb20_data$usertype))
@@ -753,7 +812,7 @@ tripb20_data_final <-
 
 
 
-# 9. load data to PostgreSQL ----------------------------------
+# 9. load to PostgreSQL ----------------------------------
 # PS: ONLY RUN ONCE
 
 # station data 
@@ -767,15 +826,13 @@ tripb20_data_final <-
 # trip data before 2020
 # dbWriteTable(con, "f_tripb2020", tripb20_data_final)
 
-# Note: go to postgresql to set data type and constaints after load
+# Note: go to postgresql to set up data type and constaints after load
 
 
 
-# 10. load data to SQLite -----------------------------------
+# 10. load to SQLite -----------------------------------
+# PS: Don't use as it takes too long to query 
 # PS: ONLY RUN ONCE
-
-
-# Don't use as it takes too long to query big data
 
 
 # create table for station data
@@ -810,20 +867,20 @@ tripb20_data_final <-
 #           "CREATE TABLE F_TripS2020 (
 #     ride_id         TEXT   PRIMARY KEY  NOT NULL,
 #     rideable_type   TEXT,
-#     start_date      INTEGER (8),
-#     end_date        INTEGER (8),
-#     started_at     TEXT,
-#     ended_at     TEXT,
-#     ride_length   TEXT,
+#     start_date      INTEGER (8) NOT NULL,
+#     end_date        INTEGER (8) NOT NULL,
+#     started_at     TEXT    NOT NULL,
+#     ended_at     TEXT      NOT NULL,
+#     ride_length   TEXT     NOT NULL,
 #     start_station_name     TEXT,
 #     start_station_id         INTEGER,
 #     end_station_name  TEXT,
 #     end_station_id     INTEGER,
-#     start_lat  REAL,
-#     start_lng  REAL,
+#     start_lat  REAL       NOT NULL,
+#     start_lng  REAL       NOT NULL,
 #     end_lat REAL,
 #     end_lng REAL,
-#     member_casual TEXT
+#     member_casual TEXT    NOT NULL
 # )"
 # )
 
@@ -862,7 +919,7 @@ tripb20_data_final <-
 
 
 
-# 11. check station data from trips20 and tripb20 data ----------------------
+# 11. check data consistency & structure ----------------------
 
 # check trips20 data ----
 glimpse(trips20_data)
