@@ -354,11 +354,14 @@ date the station was created in the system
 ### 3. Data Cleaning & Manipulation
 
 Steps of data cleaning and manipulation are documented in
-1_code\\0_data_load.R. After clean, data was loaded to bike database on
-the SQLite server.
+1_code\\0_data_load.R. After clean, data was loaded to the bike database
+on the SQLite server.
 
--   Station data: loaded to table `D_Station`
+-   Station data: loaded to table `d_station`. Last update on 2017-12-31
+    with 585 rows
 
--   Trip data before 2020: loaded to table `F_TripB2020`
+-   Trip data before 2020: loaded to table `f_tripb2020`. Data from
+    2001-01-20 to 2020-01-21
 
--   Trip data since 2020: loaded to table `F_TripS2020`
+-   Trip data since 2020: loaded to table `f_trips2020`. Data from
+    2020-01-01 to 2022-09-06

@@ -11,9 +11,23 @@ knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
 library(readxl)
 library(kableExtra)
+library(RPostgres)
+library(DBI)
+library(keyring)
+library(lubridate)
 
 # folder
 folder_input <- '3_input'
+
+# connection
+con <- 
+  dbConnect(
+    Postgres(),
+    dbname = "dac_bike",
+    port = "5432",
+    user = key_list("postgres")[1,2],
+    password = key_get("postgres", key_list("postgres")[1,2])
+  )
 
 
 ```
@@ -101,10 +115,63 @@ kable(meta_station)
 
 ### 3. Data Cleaning & Manipulation
 
-Steps of data cleaning and manipulation are documented in 1_code\\0_data_load.R. After clean, data was loaded to bike database on the SQLite server.
+Steps of data cleaning and manipulation are documented in 1_code\\0_data_load.R. After clean, data was loaded to the bike database on the SQLite server.
 
--   Station data: loaded to table `D_Station`
+```{r stat, echo=FALSE}
 
--   Trip data before 2020: loaded to table `F_TripB2020`
+# latest update date of station data
+station_cnt <- 
+  dbGetQuery(
+    con,
+    "
+    SELECT 
+       update_date,
+       COUNT(id) num_station
+  FROM d_station
+  GROUP BY
+          update_date
+    "
+  ) %>% 
+  slice_max(update_date, n=1) %>% 
+  mutate_if(is.numeric, as.numeric)
 
--   Trip data since 2020: loaded to table `F_TripS2020`
+
+# date range of trip data before 2020
+tripb20_date <- 
+  dbGetQuery(
+    con,
+    "
+    SELECT 
+       MIN(start_date) mindate,
+       MAX(end_date) maxdate
+  FROM f_tripb2020
+    "
+  ) %>%
+  mutate(
+    across(c(mindate, maxdate), ymd)
+  )
+
+
+# date range of trip data since 2020
+trips20_date <- 
+  dbGetQuery(
+    con,
+    "
+  SELECT 
+       MIN(start_date) mindate,
+       MAX(end_date) maxdate
+  FROM f_trips2020
+    "
+  ) %>% 
+  mutate(
+    across(c(mindate, maxdate), ymd)
+  )
+
+
+```
+
+-   Station data: loaded to table `d_station`. Last update on `r ymd(station_cnt$update_date)` with `r station_cnt$num_station` rows
+
+-   Trip data before 2020: loaded to table `f_tripb2020`. Data from `r tripb20_date$mindate` to `r tripb20_date$maxdate` 
+
+-   Trip data since 2020: loaded to table `f_trips2020`. Data from `r trips20_date$mindate` to `r trips20_date$maxdate`
