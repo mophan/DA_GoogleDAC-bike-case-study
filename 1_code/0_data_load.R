@@ -641,6 +641,12 @@ max(unique(c(trips20_data$start_station_id,      # 202480
     na.rm = TRUE)
 
 
+# check if any station id not in station data      # 47 not in station data
+table(!unique(c(trips20_data$start_station_id,
+              trips20_data$end_station_id))
+      %in% c(station_data$id))
+
+
 # station name
 table(is.na(trips20_data$start_station_name))   # 1M rows NULL
 table(is.na(trips20_data$end_station_name))     # 1M rows NULL
@@ -648,6 +654,12 @@ table(is.na(trips20_data$end_station_name))     # 1M rows NULL
 
 length(unique(c(trips20_data$start_station_name,   # 1499
                 trips20_data$end_station_name)))
+
+
+# check if any station name not in station data      # 90 not in station data
+table(!unique(c(trips20_data$start_station_name,
+              trips20_data$end_station_name))
+      %in% c(station_data$name))
 
 
 # long, lat
@@ -740,36 +752,134 @@ trips20_data <-
 
 # 8. validate trip data before 2020 ---------------------------------
 
-
-# check birthday distribution
-summary(tripb20_data$birthday)
-summary(tripb20_data$birthyear)
-
-
-# check who have birthyear as 1888 --- 20 trips
-# Maybe because of data entry errors?
-abnormal_birthyear <- 
-  tripb20_data %>% 
-  filter(birthyear == 1888)
-
-
-# check variable distribution
-addmargins(table(tripb20_data$usertype))
-addmargins(table(is.na(tripb20_data$gender)))
-addmargins(table(tripb20_data$gender))
-addmargins(table(is.na(tripb20_data$birthyear)))
-
-# check before load
+# data type ---
 glimpse(tripb20_data_final)
+
+
+# data range & constraints ---
+
+# trip_id
+table(is.na(tripb20_data_final$trip_id))   # all FALSE not NULL
+table(duplicated(tripb20_data_final$trip_id)) # all FALSE not NULL
 
 min(tripb20_data_final$trip_id)
 max(tripb20_data_final$trip_id)
 
+
+# bikeid
+table(is.na(tripb20_data_final$bikeid))      # all FALSE not NULL
+table(duplicated(tripb20_data_final$bikeid))  # not unique
+
 min(tripb20_data_final$bikeid)
 max(tripb20_data_final$bikeid)
 
-min(tripb20_data_final$tripduration)
-max(tripb20_data_final$tripduration)
+length(unique(tripb20_data_final$bikeid))
+
+
+# start time, end time
+table(is.na(tripb20_data_final$start_time))  # all FALSE not NULL
+table(is.na(tripb20_data_final$end_time))    # all FALSE not NULL
+
+
+# trip duration
+table(is.na(tripb20_data_final$tripduration))  # all FALSE not NULL
+summary(tripb20_data_final$tripduration)
+
+table(tripb20_data_final$tripduration >= 24*60*60)   # 3360
+
+
+# recalculate trip duration
+check_tripduration <- 
+  tripb20_data_final %>% 
+  mutate(
+    trip_length = as.numeric(difftime(end_time, start_time))
+  )
+
+
+table(check_tripduration$tripduration 
+      != check_tripduration$trip_length)      # approximately 50% different
+
+
+# station id
+table(is.na(tripb20_data_final$from_station_id))   # all FALSE not NULL
+table(is.na(tripb20_data_final$to_station_id))     # all FALSE not NULL
+
+
+length(unique(c(tripb20_data_final$from_station_id,
+              tripb20_data_final$to_station_id)))
+
+
+min(tripb20_data_final$from_station_id)
+min(tripb20_data_final$to_station_id)
+
+max(tripb20_data_final$from_station_id)
+max(tripb20_data_final$to_station_id)
+
+
+# check if any station id not in station data      # 47 not in station data
+table(!unique(unique(tripb20_data_final$from_station_id),
+             unique(tripb20_data_final$to_station_id))
+      %in% c(station_data$id))
+
+
+# station name
+table(is.na(tripb20_data_final$from_station_name))   # all FALSE not NULL
+table(is.na(tripb20_data_final$to_station_name))     # all FALSE not NULL
+
+
+length(unique(c(tripb20_data_final$from_station_name,
+              tripb20_data_final$to_station_name)))
+
+
+# check if any station name not in station data      # 90 not in station data
+table(!unique(unique(tripb20_data_final$from_station_name),
+              unique(tripb20_data_final$to_station_name))
+      %in% c(station_data$name))
+
+
+# usertype
+table(is.na(tripb20_data_final$usertype))           # all FALSE not NULL
+table(tripb20_data_final$usertype)
+prop.table(table(tripb20_data_final$usertype)) * 100   # 74% subscribers
+
+
+# gender
+table(is.na(tripb20_data_final$gender))
+prop.table(table(tripb20_data_final$gender)) * 100     # 74% male
+
+
+# birth year
+table(is.na(tripb20_data_final$birthyear))
+summary(tripb20_data_final$birthyear)
+
+
+table(tripb20_data_final$birthyear <= 1923)    # 6682
+
+
+# check who lived for 100 or more year
+# Maybe because of data entry errors?
+abnormal_birthyear <- 
+  tripb20_data_final %>% 
+  filter(birthyear <= 1923)
+
+
+# check if any subscribers dont have info abt gender, birthyear
+table(tripb20_data_final$usertype == 'Subscriber'
+      & is.na(tripb20_data_final$gender))              # 33064
+
+
+table(tripb20_data_final$usertype == 'Subscriber'
+      & is.na(tripb20_data_final$birthyear))         # 10515
+
+
+# check if anyone have gender and birthyear but not subscribers
+table(!is.na(tripb20_data_final$gender)
+      & tripb20_data_final$usertype == 'Customer')
+
+
+table(!is.na(tripb20_data_final$birthyear)
+      & tripb20_data_final$usertype == 'Customer')
+
 
 
 # add column start_date, end_date
@@ -789,11 +899,6 @@ tripb20_data_final <-
     start_time = format(start_time, '%Y-%m-%d %H:%M:%S'),
     end_time = format(end_time, '%Y-%m-%d %H:%M:%S')
   )
-
-
-# check duplicate
-table(duplicated(tripb20_data_final$trip_id))
-table(duplicated(tripb20_data_final$bikeid))
 
 
 # select column to use
@@ -916,106 +1021,5 @@ tripb20_data_final <-
 # load trip data before 2020
 # ONLY RUN ONCE, if run multiple then append same data to the table
 # dbAppendTable(con_sqlite, 'F_TripB2020', tripb20_data_final)
-
-
-
-# 11. check data consistency & structure ----------------------
-
-# check trips20 data ----
-glimpse(trips20_data)
-
-# extract station from trips20 data
-trips20_station <- 
-  trips20_data %>% 
-  select(
-    start_station_id,
-    start_station_name) %>% 
-  rename(
-    id = start_station_id,
-    name = start_station_name
-  ) %>% 
-  rbind(
-    trips20_data %>% 
-      select(
-        end_station_id,
-        end_station_name) %>% 
-      rename(
-        id = end_station_id,
-        name = end_station_name)
-  ) %>% 
-  distinct() %>% 
-  arrange(id, name)
-
-
-# check unique id and name
-length(unique(trips20_station$id))
-length(unique(trips20_station$name))
-
-# chech how many id, name not in station data
-addmargins(table(!unique(trips20_station$id) %in% unique(station_data$id)))
-addmargins(table(!unique(trips20_station$name) %in% unique(station_data$name)))
-
-
-# view id and name not in station data
-trips20_station <- 
-  trips20_station %>% 
-  left_join(station_data %>% 
-              select(id, name, update_date) %>% 
-              filter(update_date == 20171231) %>% 
-              mutate(Is_duplicate = TRUE),
-            by = c('id', 'name')) %>% 
-  left_join(station_data %>% 
-              filter(update_date == 20171231) %>% 
-              select(id, name) %>% 
-              rename(station_id = id),
-            by = 'name') %>% 
-  left_join(station_data %>% 
-              filter(update_date == 20171231) %>% 
-              select(id, name) %>% 
-              rename(station_name = name),
-            by = 'id')
-
-
-# export trips20_station for manual check
-fwrite(trips20_station,
-       file.path(folder_ouput, 'trips20_station.csv'),
-       na = '', row.names = FALSE)
-
-
-# extract station from tripb20 data ----
-tripb20_station <- 
-  tripb20_data_adj %>% 
-  select(from_station_id, 
-         from_station_name) %>% 
-  rename(
-    id = from_station_id,
-    name = from_station_name
-  ) %>% 
-  rbind(
-    tripb20_data %>% 
-      select(to_station_id, 
-             to_station_name) %>% 
-      rename(
-        id = to_station_id,
-        name = to_station_name
-      )
-  ) %>% 
-  distinct() %>% 
-  arrange(id, name)
-
-
-# export for manual check
-fwrite(tripb20_station,
-       file.path(folder_ouput, 'tripb20_station.csv'),
-       na = '', row.names = FALSE)
-
-
-# check na
-table(is.na(tripb20_station$id))
-table(is.na(tripb20_station$name))
-
-
-table(tripb20_station$id %in% trips20_station$id)
-table(tripb20_station$name %in% trips20_station$name)
 
 
