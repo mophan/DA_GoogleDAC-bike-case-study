@@ -1,0 +1,345 @@
+---
+title: "Bike Share Case Study"
+output: html_document
+---
+
+
+```{r setup, include=FALSE}
+
+# packages
+library(tidyverse)
+library(lubridate)
+library(gt)
+library(glue)
+library(data.table)  # read csv faster
+# library(RPostgres)
+# library(DBI)
+# library(keyring)
+# library(plotly)
+
+
+# # connection
+# con <- 
+#   dbConnect(
+#     Postgres(),
+#     dbname = "dac_bike",
+#     port = "5432",
+#     user = key_list("postgres")[1,2],
+#     password = key_get("postgres", key_list("postgres")[1,2])
+#   )
+
+
+# folder
+folder_output <- "4_output"
+
+
+# start date
+# start_date <- 20190101
+
+
+```
+
+
+```{r import data, echo=FALSE}
+
+# import trips since 2020
+trips20_data <- 
+#   dbGetQuery(
+#     con,
+#     "
+#   SELECT
+# 		ride_id,
+# 		start_date,
+# 		end_date,
+# 		started_at,
+# 		ended_at,
+# 		member_casual
+# 
+# 	FROM
+# 			public.f_trips2020
+#     "
+#   )
+  fread(file.path(folder_output, 'trips20_data.csv')) %>% 
+  mutate_if(is.numeric, as.numeric)
+
+
+
+# import trips before 2020
+# tripb20_data <- 
+# #     dbGetQuery(
+# #     con,
+# #     "
+# #     SELECT *
+# # 	  FROM public.f_tripb2020
+# # 	  WHERE
+# # 	      start_date >= 20190101
+# #     "
+# #   )
+#   fread(file.path(folder_output, 'tripb20_data.csv')) %>% 
+#   mutate_if(is.numeric, as.numeric)
+
+
+```
+
+
+
+```{r data cleansing, echo=FALSE}
+
+
+# # view data
+# glimpse(trips20_data)
+# glimpse(tripb20_data)
+
+
+# set date range as the last one year
+date_end <- max(trips20_data$end_date)
+date_start <- format(ymd(date_end) - years(1), '%Y%m%d') %>% as.numeric()
+
+
+# filter one year
+trip_data <- 
+  trips20_data %>% 
+  filter(start_date >= date_start) %>% 
+  rename(
+    trip_id = ride_id,
+    start_time = started_at,
+    end_time = ended_at,
+    usertype = member_casual
+  )
+
+
+# # select columns to use for trip since 2020
+# trips2020 <-
+#   trips20_data %>%
+#   rename(
+#     trip_id = ride_id,
+#     start_time = started_at,
+#     end_time = ended_at,
+#     usertype = member_casual
+#   ) %>%
+#   select(
+#     trip_id,
+#     start_date,
+#     end_date,
+#     start_time,
+#     end_time,
+#     start_station_id,
+#     start_station_name,
+#     end_station_id,
+#     end_station_name,
+#     usertype
+#   )
+
+
+# # cleaning trip before 2020
+# # PS; recode usertyppe to casual and member
+# # Is it appropriate to code dependent as member
+# tripb2020 <-
+#   tripb20_data %>%
+#   mutate(
+#     trip_id = as.character(trip_id),
+#     usertype = recode(
+#       usertype,
+#       'Customer' = 'casual',
+#       'Dependent' = 'member',
+#       'Subscriber' = 'member'
+#     )
+#   ) %>%
+#   rename(
+#     start_station_id = from_station_id,
+#     end_station_id = to_station_id,
+#     start_station_name = from_station_name,
+#     end_station_name = to_station_name
+#   ) %>% 
+#   select(names(trips2020))
+
+
+# # remove unused data
+# # PS: cause being out of memory
+# rm(tripb20_data, trips20_data)
+# 
+#   
+# # rbind
+# trip_data <- bind_rows(tripb2020, trips2020)
+# 
+# 
+# # remove unused data
+# rm(tripb2020, trips2020)
+
+
+# get mindate, maxdate
+min_date <- min(trip_data$start_date)
+max_date <- max(trip_data$end_date)
+
+
+```
+
+
+```{r trip length, echo=FALSE}
+
+# calculate ride length in second
+trip_data <- 
+  trip_data %>% 
+  mutate(
+    across(c(start_time, end_time), as_datetime),
+    trip_length = as.numeric(difftime(end_time, start_time)),
+    .after = 'end_time'
+  )
+
+
+# filter out trips for quality check
+trip_data <- 
+  trip_data %>% 
+  filter(!(start_station_name == 'HQ QR' | trip_length < 0))
+
+
+# add year, month, monthid, day of week
+trip_data <- 
+  trip_data %>% 
+  mutate(
+    year = year(start_time),
+    month = month(start_time),
+    monthid = as.numeric(format(start_time, '%Y%m')),
+    dow = str_sub(weekdays(start_time), 1, 3),
+    .before = 'start_date'
+  )
+
+
+```
+
+
+This analysis is to study how different annual members and casual riders used Cyclistic bikes.
+
+Data: from `r ymd(min_date)` to `r ymd(max_date)`
+
+
+### 1.  Trip length
+
+Table below shows descriptive stat of trip length (in seconds) of all trips
+
+```{r trip length stat, echo=FALSE}
+
+# calculate ride length stat
+overall_stat <- 
+  trip_data %>% 
+  group_by() %>% 
+  summarise(
+        TripCount = n_distinct(trip_id),
+        Min_TripLength = min(trip_length, na.rm = TRUE),
+        Q1_TripLength = quantile(trip_length, 0.25, type = 1, na.rm = FALSE),
+        Median_TripLength = median(trip_length, na.rm = TRUE),
+        Mean_TripLength = mean(trip_length),
+        Q3_TripLength = quantile(trip_length, 0.75, type = 1,  na.rm = FALSE),
+        Max_TripLength = max(trip_length, na.rm = TRUE)
+      ) %>%
+  mutate(
+    DataType = 'overall', .before = 'TripCount')
+
+
+# calculate ride length stat by user type
+ridelength_stat <- 
+  overall_stat %>% 
+  bind_rows(
+      trip_data %>% 
+      group_by(usertype) %>% 
+      summarise(
+        TripCount = n_distinct(trip_id),
+        Min_TripLength = min(trip_length, na.rm = TRUE),
+        Q1_TripLength = quantile(trip_length, 0.25, type = 1, na.rm = FALSE),
+        Median_TripLength = median(trip_length, na.rm = TRUE),
+        Mean_TripLength = mean(trip_length),
+        Q3_TripLength = quantile(trip_length, 0.75, type = 1,  na.rm = FALSE),
+        Max_TripLength = max(trip_length, na.rm = TRUE)
+      ) %>% 
+      rename(DataType = usertype)
+  )
+
+
+# stat of all trips
+ridelength_stat %>% 
+  gt()
+
+```
+
+
+### 2. Trip length by user type {.tabset}
+
+```{r detect outliers, echo=FALSE}
+
+# cut off points to detect outliers
+IQR <- overall_stat$q3_length - overall_stat$q1_length
+upper_bound <- overall_stat$q3_length + 1.5 * IQR
+lower_bound <-
+  if(overall_stat$q1_length < 1.5 * IQR) 0 else {
+    overall_stat$q1_length - 1.5 * IQR
+  }
+
+
+# remove outliers
+filtered_trip_data <-
+  trip_data %>%
+  filter(trip_length <= upper_bound)
+
+
+# remove trip_data for spacing up the environment
+rm(trip_data)
+
+```
+
+To better visualize the boxplot, the outliers outside 1.5 interquartile range (IQR) from Q1 and Q3 are excluded.
+This means trips longer than `r upper_bound` seconds (approximately `r upper_bound %/% 60` minutes) and less than `r lower_bound` seconds are excluded.
+
+#### All 
+
+```{r boxplot usertype, echo=FALSE, message=FALSE, warning=FALSE, fig.align='center'}
+
+# boxplot of trip length by user type
+boxplot_usertype <-
+  div(plot_ly(filtered_trip_data,
+          y = ~trip_length,
+          color = ~usertype,
+          type = 'box'),
+      align = "center")
+
+
+boxplot_usertype
+
+```
+
+#### By year
+
+```{r boxplot by year, echo=FALSE, message=FALSE, warning=FALSE}
+
+# remove
+# rm(boxplot_usertype)
+# 
+# 
+# # boxplot of trip length by year
+# boxplot_byyear <-
+#   plot_ly(filtered_trip_data,
+#           x = ~year,
+#           y = ~trip_length,
+#           color = ~usertype,
+#           type = 'box')
+# 
+# 
+# boxplot_byyear <-
+#   boxplot_byyear %>%
+#   layout(boxmode = "group")
+# 
+# 
+# boxplot_byyear
+
+```
+
+
+#### By month
+
+
+3.  Trip length by day of week
+
+4.  Number of rides
+
+5.  Demographic of subscribers
+
+6.  Location

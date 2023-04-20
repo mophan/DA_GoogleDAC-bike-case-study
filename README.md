@@ -358,7 +358,7 @@ Steps of data cleaning and manipulation are documented in
 on the SQLite server.
 
 -   Station data: loaded to table `d_station`. Last update on 2017-12-31
-    with 585 rows
+    for 585 stations
 
 -   Trip data before 2020: loaded to table `f_tripb2020`. Data from
     2001-01-20 to 2020-01-21

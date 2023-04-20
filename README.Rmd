@@ -170,7 +170,7 @@ trips20_date <-
 
 ```
 
--   Station data: loaded to table `d_station`. Last update on `r ymd(station_cnt$update_date)` with `r station_cnt$num_station` rows
+-   Station data: loaded to table `d_station`. Last update on `r ymd(station_cnt$update_date)` for `r station_cnt$num_station` stations
 
 -   Trip data before 2020: loaded to table `f_tripb2020`. Data from `r tripb20_date$mindate` to `r tripb20_date$maxdate` 
 

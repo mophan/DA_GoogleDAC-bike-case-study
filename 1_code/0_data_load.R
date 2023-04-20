@@ -917,6 +917,28 @@ tripb20_data_final <-
 
 
 
+# export back up files -----------------------------------
+
+# station data
+fwrite(station_data,
+       file.path(folder_ouput, 'station_data.csv'),
+       na = '', row.names = FALSE)
+
+
+# trip data since 2020
+fwrite(trips20_data,
+       file.path(folder_ouput, 'trips20_data.csv'),
+       na = '', row.names = FALSE)
+
+
+# trip data before 2020
+fwrite(tripb20_data_final,
+       file.path(folder_ouput, 'tripb20_data.csv'),
+       na = '', row.names = FALSE)
+
+
+
+
 # 9. load to PostgreSQL ----------------------------------
 # PS: ONLY RUN ONCE
 
