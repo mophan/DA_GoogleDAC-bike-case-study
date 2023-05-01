@@ -24,9 +24,7 @@ want to understand:
 
 -   How do annual members and casual riders use Cyclistic bikes
     differently?
-
 -   Why would casual riders buy Cyclistic annual memberships?
-
 -   How can Cyclistic use digital media to influence casual riders to
     become members?
 
@@ -155,11 +153,8 @@ birth year of rider
 **Notes:**
 
 -   Trips that did not include a start or end date are excluded
-
 -   Trips less than 1 minute in duration are excluded
-
 -   Trips greater than 24 hours in duration are excluded
-
 -   Gender and birthday are only available for Subscribers
 
 Since 2020, the data structure changed to:
@@ -351,17 +346,49 @@ date the station was created in the system
 </tbody>
 </table>
 
-### 3. Data Cleaning & Manipulation
+### 3. Data Cleaning
 
-Steps of data cleaning and manipulation are documented in
-1_code\\0_data_load.R. After clean, data was loaded to the bike database
-on the SQLite server.
+All steps of data import and cleaning are written in
+[0_data_load.R](1_code\0_data_load.R):
 
--   Station data: loaded to table `d_station`. Last update on 2017-12-31
-    for 585 stations
+-   Unzip and import data from csv from folder 2_data
+-   As the data structure of trips before and after 2020 are different,
+    data was imported into 2 different dataframes: trip_s2020,
+    trips_b2020
+-   Parse different date time formats for start time and end time of
+    including: ymd_HMS, mdy_HMS, mdy_HM
+-   Remove duplicated trips
+-   Re-calculate trip length in seconds
+-   After cleaning, data was exported in csv files, and uploaded to
+    PostgreSQL, and SQLite server
 
--   Trip data before 2020: loaded to table `f_tripb2020`. Data from
-    2001-01-20 to 2020-01-21
+The output data included:
 
--   Trip data since 2020: loaded to table `f_trips2020`. Data from
-    2020-01-01 to 2022-09-06
+-   Station data: 585 stations, data as of: 2017-12-31
+-   Trip data before 2020: 21,243,283 trips from 2001-01-20 to
+    2020-01-21
+-   Trip data since 2020: 13,024,689 trips from 2020-01-01 to 2022-09-06
+
+Table name / File name of output data:
+
+| Data              | SQLite        | PostgreSQL    | CSV files        |
+|-------------------|---------------|---------------|------------------|
+| Station           | `D_Station`   | `d_station`   | station_data.csv |
+| Trips before 2020 | `F_TripB2020` | `f_tripb2020` | trips20_data.csv |
+| Trips after 2020  | `F_TripS2020` | `f_trips2020` | tripb20_data.csv |
+
+### 4. Summary of Analysis
+
+-   Annual members rode more trips than casual riders, but the trip
+    length of casual rides are 2.3 times longer than that of annual
+    members.
+-   Average trip length of all members: 1180 seconds (or 19 minutes);
+    casual riders: 1754 seconds (or 29 minutes); annual members: 770
+    seconds (or 12 minutes)
+-   The number of trips decreased during the winter season (November to
+    February), and the trip length was also shorter.
+-   Averagely, weekends had more rides than weekdays. The trend was
+    opposite during winter months from November to February, when Monday
+    to Thursday had more rides than other days.
+
+Refer to [1_report.html](1_code\1_report.html) for the full analysis

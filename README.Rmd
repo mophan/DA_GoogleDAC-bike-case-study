@@ -20,7 +20,7 @@ library(lubridate)
 folder_input <- '3_input'
 
 # connection
-con <- 
+con <-
   dbConnect(
     Postgres(),
     dbname = "dac_bike",
@@ -45,9 +45,7 @@ Cyclistic offers flexible pricing plans including single-ride passes, full-day p
 The company wants to design a marketing strategy that aimed at converting casual riders into annual members. In order to do that, they want to understand:
 
 -   How do annual members and casual riders use Cyclistic bikes differently?
-
 -   Why would casual riders buy Cyclistic annual memberships?
-
 -   How can Cyclistic use digital media to influence casual riders to become members?
 
 This report is to answer how annual members and casual riders differ.
@@ -60,7 +58,7 @@ Data source: Google Data Analytics Certificate on Cousera
 
 Before 2020, the trip data was stored using the following metadata:
 
-```{r metadata tripb20, echo=FALSE}
+```{r metadata tripb20, echo=FALSE, message=FALSE}
 
 # import metadata trip before 2020
 meta_tripb20 <- 
@@ -76,11 +74,8 @@ kable(meta_tripb20)
 **Notes:**
 
 -   Trips that did not include a start or end date are excluded
-
 -   Trips less than 1 minute in duration are excluded
-
 -   Trips greater than 24 hours in duration are excluded
-
 -   Gender and birthday are only available for Subscribers
 
 Since 2020, the data structure changed to:
@@ -113,11 +108,9 @@ kable(meta_station)
 
 ```
 
-### 3. Data Cleaning & Manipulation
+### 3. Data Cleaning
 
-Steps of data cleaning and manipulation are documented in 1_code\\0_data_load.R. After clean, data was loaded to the bike database on the SQLite server.
-
-```{r stat, echo=FALSE}
+```{r stat, echo=FALSE, message=FALSE}
 
 # latest update date of station data
 station_cnt <- 
@@ -142,6 +135,7 @@ tripb20_date <-
     con,
     "
     SELECT 
+       COUNT(trip_id) numrow,
        MIN(start_date) mindate,
        MAX(end_date) maxdate
   FROM f_tripb2020
@@ -157,7 +151,8 @@ trips20_date <-
   dbGetQuery(
     con,
     "
-  SELECT 
+  SELECT
+       COUNT(ride_id) numrow,
        MIN(start_date) mindate,
        MAX(end_date) maxdate
   FROM f_trips2020
@@ -170,8 +165,37 @@ trips20_date <-
 
 ```
 
--   Station data: loaded to table `d_station`. Last update on `r ymd(station_cnt$update_date)` for `r station_cnt$num_station` stations
+All steps of data import and cleaning are written in [0_data_load.R](1_code\0_data_load.R):
 
--   Trip data before 2020: loaded to table `f_tripb2020`. Data from `r tripb20_date$mindate` to `r tripb20_date$maxdate` 
+-   Unzip and import data from csv from folder 2_data
+-   As the data structure of trips before and after 2020 are different, data was imported into 2 different dataframes: trip_s2020, trips_b2020
+-   Parse different date time formats for start time and end time of including: ymd_HMS, mdy_HMS, mdy_HM
+-   Remove duplicated trips
+-   Re-calculate trip length in seconds
+-   After cleaning, data was exported in csv files, and uploaded to PostgreSQL, and SQLite server
 
--   Trip data since 2020: loaded to table `f_trips2020`. Data from `r trips20_date$mindate` to `r trips20_date$maxdate`
+
+The output data included:
+
+-   Station data: `r station_cnt$num_station` stations, data as of: `r ymd(station_cnt$update_date)`
+-   Trip data before 2020: `r format(as.numeric(tripb20_date$numrow), big.mark = ",")` trips from `r tripb20_date$mindate` to `r tripb20_date$maxdate`
+-   Trip data since 2020: `r format(as.numeric(trips20_date$numrow), big.mark = ",")` trips from `r trips20_date$mindate` to `r trips20_date$maxdate`
+
+
+Table name / File name of output data:
+
+| Data              | SQLite        | PostgreSQL    | CSV files        |
+|-------------------|---------------|---------------|------------------|
+| Station           | `D_Station`   | `d_station`   | station_data.csv |
+| Trips before 2020 | `F_TripB2020` | `f_tripb2020` | trips20_data.csv |
+| Trips after 2020  | `F_TripS2020` | `f_trips2020` | tripb20_data.csv |
+
+
+### 4. Summary of Analysis
+
+- Annual members rode more trips than casual riders, but the trip length of casual rides are 2.3 times longer than that of annual members.
+- Average trip length of all members: 1180 seconds (or 19 minutes); casual riders: 1754 seconds (or 29 minutes); annual members: 770 seconds (or 12 minutes)
+- The number of trips decreased during the winter season (November to February), and the trip length was also shorter.
+- Averagely, weekends had more rides than weekdays. The trend was opposite during winter months from November to February, when Monday to Thursday had more rides than other days.
+
+Refer to [1_report.html](1_code\\1_report.html) for the full analysis
