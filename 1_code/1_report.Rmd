@@ -5,14 +5,17 @@ output: html_document
 
 
 ```{r setup, include=FALSE}
+knitr::opts_knit$set(root.dir = '..')
 
 # packages
 library(tidyverse)
 library(lubridate)
 library(gt)
 library(glue)
-library(data.table)  # read csv faster
+library(data.table)
 library(ggplot2)
+library(plotly)
+library(forcats)
 
 
 # folder
@@ -110,28 +113,34 @@ trip_data <-
     year = year(start_time),
     month = month(start_time),
     monthid = as.numeric(format(start_time, '%Y%m')),
-    dow = str_sub(weekdays(start_time), 1, 3),
+    dow = lubridate::wday(start_time, label = TRUE),
     .before = 'start_date'
-  )
+  ) 
+
+
+# add a column for season
+trip_data <-
+  trip_data %>%
+  mutate(season = case_when(
+    month >= 3 & month <= 10 ~ "Mar-Oct",
+    month <= 2 | month >= 11 ~ "Nov-Feb",
+    TRUE ~ ""
+  ))
 
 
 ```
 
 
-Data: from `r ymd(min_date)` to `r ymd(max_date)`
-
-This analysis is to study how different annual members and casual riders used Cyclistic bikes.
+Data: from `r ymd(min_date)` to `r ymd(max_date)`. This analysis is to study how different annual members and casual riders used Cyclistic bikes.
 
 
 
-### 1.  Trip length
-
-Table below shows descriptive stat of trip length (in seconds) of all trips
+### **1. Overall**
 
 ```{r trip length stat, echo=FALSE}
 
 # calculate ride length stat
-overall_stat <- 
+all_stat <- 
   trip_data %>% 
   group_by() %>% 
   summarise(
@@ -139,17 +148,17 @@ overall_stat <-
         Min_Length = min(trip_length_insecond, na.rm = TRUE),
         Q1_Length = quantile(trip_length_insecond, 0.25, type = 1, na.rm = FALSE),
         Median_Length = median(trip_length_insecond, na.rm = TRUE),
-        Mean_Length = mean(trip_length_insecond),
+        Mean_Length = round(mean(trip_length_insecond), digits = 0), 
         Q3_Length = quantile(trip_length_insecond, 0.75, type = 1,  na.rm = FALSE),
         Max_Length = max(trip_length_insecond, na.rm = TRUE)
       ) %>%
   mutate(
-    DataType = 'overall', .before = 'TripCount')
+    DataType = 'all', .before = 'TripCount')
 
 
 # calculate ride length stat by user type
 ridelength_stat <- 
-  overall_stat %>% 
+  all_stat %>% 
   bind_rows(
       trip_data %>% 
       group_by(usertype) %>% 
@@ -158,7 +167,7 @@ ridelength_stat <-
         Min_Length = min(trip_length_insecond, na.rm = TRUE),
         Q1_Length = quantile(trip_length_insecond, 0.25, type = 1, na.rm = FALSE),
         Median_Length = median(trip_length_insecond, na.rm = TRUE),
-        Mean_Length = mean(trip_length_insecond),
+        Mean_Length = round(mean(trip_length_insecond), digits = 0),
         Q3_Length = quantile(trip_length_insecond, 0.75, type = 1,  na.rm = FALSE),
         Max_Length = max(trip_length_insecond, na.rm = TRUE)
       ) %>% 
@@ -170,31 +179,139 @@ ridelength_stat <-
 ridelength_stat <-
   ridelength_stat %>%
   mutate(
-    TripCountPercent = round(TripCount / ridelength_stat$TripCount[DataType == "overall"] * 100, digits = 1),
+    TripCountPercent = round(TripCount / ridelength_stat$TripCount[DataType == "all"] * 100, digits = 1),
     .after = 'TripCount'
   )
 
 
-# stat of all trips
-ridelength_stat %>% 
-  gt()
+```
+
+The table below shows the summary of trip length statistics (in seconds). 
+
+- Annual members rode more trips than casual riders, but the trip length of casual rides are 
+`r format(ridelength_stat$Mean_Length[ridelength_stat$DataType == 'casual'] / ridelength_stat$Mean_Length[ridelength_stat$DataType == 'member'], digits = 2)`
+times longer than that of annual members.
+- Average trip length of
+    - all members: `r ridelength_stat$Mean_Length[ridelength_stat$DataType == 'all']` seconds (or `r ridelength_stat$Mean_Length[ridelength_stat$DataType == 'all'] %/% 60` minutes)
+    - casual riders: `r ridelength_stat$Mean_Length[ridelength_stat$DataType == 'casual']` seconds (or `r ridelength_stat$Mean_Length[ridelength_stat$DataType == 'casual'] %/% 60` minutes)
+    - annual members: `r ridelength_stat$Mean_Length[ridelength_stat$DataType == 'member']` seconds (or `r ridelength_stat$Mean_Length[ridelength_stat$DataType == 'member'] %/% 60` minutes)
+    
+    
+```{r table of stats, echo=FALSE}
+
+ridelength_stat %>%
+  gt() %>%
+  fmt_number(
+    columns = c(TripCount, Max_Length, Mean_Length, Q3_Length),
+    sep_mark = ",",
+    decimals = 0
+  ) %>%
+  fmt(
+    columns = TripCountPercent,
+    fns = function(x)
+      paste0(x, '%')
+  ) %>%
+  tab_options(table.font.size = 13) %>% 
+  tab_footnote(
+    footnote = "all - all trips, casual - trips made by casual riders, member - trips made by annual members",
+    locations = cells_column_labels(columns = DataType)
+  ) %>% 
+  tab_footnote(
+    footnote = "Min_Length: minimum trip length",
+    locations = cells_column_labels(columns = Min_Length)
+  ) %>% 
+  tab_footnote(
+    footnote = "Q1_Length: 25% of the trips have their length below Q1",
+    locations = cells_column_labels(columns = Q1_Length)
+  ) %>% 
+  tab_footnote(
+    footnote = "Median_Length: 50% of the trips have their length below median",
+    locations = cells_column_labels(columns = Median_Length)
+  ) %>% 
+  tab_footnote(
+    footnote = "Mean_Length: the average trip length",
+    locations = cells_column_labels(columns = Mean_Length)
+  ) %>% 
+  tab_footnote(
+    footnote = "Q3_Length: 75% of thr trips have their length below Q3",
+    locations = cells_column_labels(columns = Q3_Length)
+  ) %>% 
+  tab_footnote(
+    footnote = "Max_Length: maximum trip length",
+    locations = cells_column_labels(columns = Max_Length)
+  )
+
+```
+
+### **2. Number of rides** {.tabset}
+
+- The number of trips decreased during the winter season from November to February.
+- The same pattern were seen for both groups, casual riders and annual members. 
+
+#### By Day
+
+```{r number of rides by day, echo=FALSE, message=FALSE, warning=FALSE, fig.width=9}
+
+# group trip data by day
+ride_byday <- 
+  trip_data %>% 
+  group_by(start_date) %>% 
+  summarise(TripCount = n() %>% as.numeric()) %>% 
+  ungroup()
+
+
+# plot chart
+fig <- 
+  plot_ly(ride_byday, type = 'scatter', mode = 'lines') %>% 
+  add_trace(x = ~ymd(start_date), y = ~TripCount, showlegend = FALSE) %>% 
+  layout(xaxis = list(title = FALSE), yaxis = list(title = "number of rides"))
+
+
+fig
 
 ```
 
 
+#### By Month
 
-### 2. Trip length by user type {.tabset}
+```{r number of rides by month, echo=FALSE, message=FALSE, fig.width=9}
+
+# group trip data by month
+ride_bymonth <- 
+  trip_data %>% 
+  group_by(monthid, usertype) %>% 
+  summarise(TripCount = n()) %>% 
+  ungroup() %>% 
+  rename(DataType = usertype) %>% 
+  rbind(trip_data %>% 
+          group_by(monthid) %>% 
+          summarise(TripCount = n()) %>% 
+          mutate(DataType = 'all', .after = 'monthid'))
+
+
+fig <-
+  plot_ly(ride_bymonth, type = 'scatter', mode = 'lines') %>%
+  add_trace(x = ~ym(monthid), y = ~TripCount, color = ~DataType) %>% 
+  layout(xaxis = list(title = FALSE), yaxis = list(title = "number of rides"))
+
+
+fig
+
+```
+
+
+### **3. Trip length** 
 
 ```{r detect outliers, echo=FALSE}
 
 # cut off points to detect outliers
-IQR <- overall_stat$Q3_Length - overall_stat$Q1_Length
+IQR <- all_stat$Q3_Length - all_stat$Q1_Length
 
-upper_bound <- overall_stat$Q3_Length + 1.5 * IQR
+upper_bound <- all_stat$Q3_Length + 1.5 * IQR
 
 lower_bound <-
-  if(overall_stat$Q1_Length < 1.5 * IQR) 0 else {
-    overall_stat$Q1_Length - 1.5 * IQR
+  if(all_stat$Q1_Length < 1.5 * IQR) 0 else {
+    all_stat$Q1_Length - 1.5 * IQR
   }
 
 
@@ -206,17 +323,35 @@ filtered_trip_data <-
 
 ```
 
-To better visualize the boxplot, the outliers outside 1.5 interquartile range (IQR) from Q1 and Q3 are excluded.
-This means trips longer than `r upper_bound` seconds (approximately `r upper_bound %/% 60` minutes) and less than `r lower_bound` seconds are excluded.
+- The trip length outside 1.5 interquartile range (IQR = Q3 - Q1) or longer than
+`r upper_bound` seconds (or approximately `r upper_bound %/% 60` minutes) was considered outliers and excluded from the following charts.
+- The trip length during winter season from November to February was shorter than that of the other months.
 
-#### By User Type
+#### **Trip Length by Month**
 
-```{r boxplot usertype, echo=FALSE, message=FALSE, warning=FALSE, fig.align='center'}
+```{r boxplot by month, echo=FALSE, message=FALSE, warning=FALSE, fig.align='left', fig.width=9}
 
 # function to calculate median 
 fun_med <- function(x) return(data.frame(y=median(x),label=median(x,na.rm=T)))
 fun_mean <- function(x) return(data.frame(y=mean(x), label=round(mean(x, na.rm=T), 0)))
 
+
+# box plot of trip length by month
+filtered_trip_data %>% 
+  ggplot(aes(as.character(monthid), trip_length_insecond)) +
+  geom_boxplot() +
+  labs(x = "", y = "trip length (in seconds)") +
+  stat_summary(fun.data = fun_med, geom = "text", vjust = 1.3) +
+  stat_summary(fun.y = mean, geom = "point", colour = "black",
+               shape = 18, size = 2) +
+  stat_summary(fun.data = fun_mean, geom = "text", vjust = -0.7)
+
+
+```
+
+#### **Trip Length by User Type**
+
+```{r boxplot by user type, echo=FALSE, message=FALSE, warning=FALSE, fig.align='left'}
 
 # box plot of trip length by user type
 filtered_trip_data %>% 
@@ -228,30 +363,128 @@ filtered_trip_data %>%
                shape = 18, size = 2) +
   stat_summary(fun.data = fun_mean, geom = "text", vjust = -0.7)
 
-
-
 ```
 
-#### By Month
 
-```{r boxplot by year, echo=FALSE, message=FALSE, warning=FALSE, fig.align='center'}
+#### **Trip Length by Month and User Type**
+
+```{r boxplot by month and user type, echo=FALSE, message=FALSE, warning=FALSE, fig.align='left', fig.width=12}
 
 # box plot of trip length by month
 filtered_trip_data %>% 
-  ggplot(aes(as.character(monthid), trip_length_insecond)) +
+  ggplot(aes(as.character(monthid), trip_length_insecond, fill = usertype)) +
   geom_boxplot() +
-  labs(x = "month", y = "trip length (in seconds)")
+  labs(x = "", y = "trip length (in seconds)")
 
 ```
 
 
-#### By Month and User Type
+### **4.  By day of week**
+
+- Averagely, weekends had more rides than weekdays. The trend was opposite during winter months from November to February, when Monday to Thursday had more rides than other days.
+- The trip length were longer during weekends, and the trend kept consistent throughout the year. 
+
+#### **Average number of rides per day by day of week** {.tabset}
+
+##### All
+
+```{r all avg rides per day, echo=FALSE, message=FALSE, fig.align='left'}
+
+# group trip data by day of week
+by_dow <- 
+  trip_data %>%
+  group_by(dow) %>% 
+  summarize(TripCount = n(),
+            NumDay = n_distinct(start_date)) %>%
+  ungroup() %>% 
+  mutate(AvgRide = TripCount %/% NumDay)
+  
+
+# plot
+by_dow %>% 
+  ggplot(aes(fct_rev(dow), AvgRide, fill = dow)) +
+  geom_col() +
+  coord_flip() +
+  labs(x = "", y = "number of rides per day") 
+
+```
+
+##### Nov - Feb
+
+```{r all avg rides per day Nov-Feb, echo=FALSE, message=FALSE, fig.align='left'}
+
+trip_data %>%
+  filter(month <= 2 | month >= 11) %>% 
+  group_by(dow) %>% 
+  summarize(TripCount = n(),
+            NumDay = n_distinct(start_date)) %>%
+  ungroup() %>% 
+  mutate(AvgRide = TripCount %/% NumDay) %>% 
+  ggplot(aes(fct_rev(dow), AvgRide, fill = dow)) +
+  geom_col() +
+  coord_flip() +
+  labs(x = "", y = "number of rides per day") 
+
+```
+
+##### Mar - Oct
+
+```{r all avg rides per day Mar-Oct, echo=FALSE, message=FALSE, fig.align='left'}
+
+trip_data %>%
+  filter(month >= 3 & month <= 10) %>% 
+  group_by(dow) %>% 
+  summarize(TripCount = n(),
+            NumDay = n_distinct(start_date)) %>%
+  ungroup() %>% 
+  mutate(AvgRide = TripCount %/% NumDay) %>% 
+  ggplot(aes(fct_rev(dow), AvgRide, fill = dow)) +
+  geom_col() +
+  coord_flip() +
+  labs(x = "", y = "number of rides per day") 
+
+```
+
+#### **Trip Length by day of week** 
 
 
-### 3.  Trip length by day of week
+```{r boxplot by day of week, echo=FALSE, message=FALSE, fig.align='left', fig.width=8.5}
 
-### 4.  Number of rides
+# box plot of trip length by day of week
+filtered_trip_data %>% 
+  ggplot(aes(dow, trip_length_insecond)) +
+  geom_boxplot() +
+  labs(x = "", y = "trip length (in seconds)") +
+  stat_summary(fun.data = fun_med, geom = "text", vjust = 1.3) +
+  stat_summary(fun.y = mean, geom = "point", colour = "black",
+               shape = 18, size = 2) +
+  stat_summary(fun.data = fun_mean, geom = "text", vjust = -0.7)
 
-### 5.  Demographic of subscribers
+```
 
-### 6.  Location
+- **Mar-Oct vs. Nov-Feb**
+
+```{r boxplot by day of week by season, echo=FALSE, message=FALSE, fig.align='left', fig.width=12}
+
+# box plot of trip length by day of week
+filtered_trip_data %>% 
+  ggplot(aes(dow, trip_length_insecond, fill = season)) +
+  geom_boxplot() +
+  labs(x = "", y = "trip length (in seconds)") +
+  scale_fill_manual(values = c("white", "light grey"))
+
+```
+
+
+
+#### **Trip Length by day of week by user type**
+
+```{r boxplot by day of week and user typr, echo=FALSE, message=FALSE, fig.align='left', fig.width=12}
+
+# box plot of trip length by day of week
+filtered_trip_data %>% 
+  ggplot(aes(dow, trip_length_insecond, fill = usertype)) +
+  geom_boxplot() +
+  labs(x = "", y = "trip length (in seconds)") 
+
+```
