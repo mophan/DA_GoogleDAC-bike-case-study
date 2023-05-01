@@ -27,27 +27,27 @@ folder_extractdata <-
   paste0(folder_data, '/extract_data')
 
 
-# # create folder extract data
+# create folder extract data
 # PS: RUN ONLY ONCE
-# dir.create(file.path(folder_data, 'extract_data'))
+dir.create(file.path(folder_data, 'extract_data'))
 
 
-# connect SQLite
-# PS: new database will be created if the bike db does not exist
-# con_sqlite <- 
-#   dbConnect(SQLite(), 
+# # connect SQLite
+# # PS: new database will be created if the bike db does not exist
+# con_sqlite <-
+#   dbConnect(SQLite(),
 #             paste0(folder_db, '/bike.sqlite'))
 
 
-# connect to PostgreSQL
-con <- 
-  dbConnect(
-    Postgres(),
-    dbname = "dac_bike",
-    port = "5432",
-    user = key_list("postgres")[1,2],
-    password = key_get("postgres", key_list("postgres")[1,2])
-  )
+# # connect to PostgreSQL
+# con <- 
+#   dbConnect(
+#     Postgres(),
+#     dbname = "dac_bike",
+#     port = "5432",
+#     user = key_list("postgres")[1,2],
+#     password = key_get("postgres", key_list("postgres")[1,2])
+#   )
 
 
 
@@ -79,58 +79,60 @@ table(trips20_data$filename,
 # 2. import trip before 2020 (header only)-------------------------------------
 # PS: ONLY RUN THIS PART ONCE 
 
-# # list files
-# data_files <- 
-#   list.files(folder_data, pattern = 'Divvy_*')
-#
-#
-# # unzip files to folder extract data
-# filename <-
-#   lapply(data_files, function(x) {
-#     unzip(file.path(folder_data, x), exdir = folder_extractdata)
-#   }) %>%
-#   unlist() %>%
-#   as.data.frame() %>%
-#   rename(FileName = '.') %>% 
-#   mutate(
-#     FileName = str_split(FileName, "/") %>% map_chr(~last(.))
-#   ) %>% 
-#   filter(str_detect(FileName, 'Divvy_'))
-# 
-# 
-# # list unzip folders
-# unzip_folders <- 
-#   list.dirs(folder_extractdata)
-#   
-# 
-# # filter unzipped folders
-# unzip_folders <- 
-#   unzip_folders[grepl("Divvy_", unzip_folders)]
-# 
-# 
-# # function to copy files to folder extract data
-# copyEverything <- function(from, to){
-#   
-#   # search all the files in from directories
-#   files <- 
-#     list.files(from, pattern = 'Divvy_')
-# 
-#   
-#   # copy the files
-#   file.copy(paste(from, files, sep = '/'), 
-#             paste(to, files, sep = '/'))
-# }
-# 
-# 
-# # copy all files from sub folders to folder_extractdata
-# for (i in 1:length(unzip_folders)) {
-#     
-#   copyEverything(unzip_folders[i], folder_extractdata)
-#     
-#   }
+# list files
+data_files <-
+  list.files(folder_data, pattern = 'Divvy_*')
 
 
-# check file header 
+# unzip files to folder extract data
+filename <-
+  lapply(data_files, function(x) {
+    unzip(file.path(folder_data, x), exdir = folder_extractdata)
+  }) %>%
+  unlist() %>%
+  as.data.frame() %>%
+  rename(FileName = '.') %>%
+  mutate(
+    FileName = str_split(FileName, "/") %>% map_chr(~last(.))
+  ) %>%
+  filter(str_detect(FileName, 'Divvy_'))
+
+
+# list unzip folders
+unzip_folders <-
+  list.dirs(folder_extractdata)
+
+
+# filter unzipped folders
+unzip_folders <-
+  unzip_folders[grepl("Divvy_", unzip_folders)]
+
+
+# function to copy files to folder extract data
+copyEverything <- function(from, to){
+
+  # search all the files in from directories
+  files <-
+    list.files(from, pattern = 'Divvy_')
+
+
+  # copy the files
+  file.copy(paste(from, files, sep = '/'),
+            paste(to, files, sep = '/'))
+}
+
+
+# copy all files from sub folders to folder_extractdata
+for (i in 1:length(unzip_folders)) {
+
+  copyEverything(unzip_folders[i], folder_extractdata)
+
+  }
+
+
+
+
+# check file header ------------------------------------------
 # PS: to mass import files that have same headers
 
 # list file names 
@@ -917,7 +919,7 @@ tripb20_data_final <-
 
 
 
-# export back up files -----------------------------------
+# export to csv files -----------------------------------
 
 # station data
 fwrite(station_data,
