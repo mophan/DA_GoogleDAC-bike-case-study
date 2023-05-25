@@ -391,4 +391,4 @@ Table name / File name of output data:
     opposite during winter months from November to February, when Monday
     to Thursday had more rides than other days.
 
-Refer to [1_code\1_report.html](1_code\\1_report.html) for the full analysis
+Refer to [1_code/1_report.html](1_code/1_report.html) for the full analysis
